@@ -75,6 +75,9 @@
         "typeinfo": "cpp",
         "variant": "cpp",
         "format": "cpp",
-        "__nullptr": "cpp"
-    }
+        "__nullptr": "cpp",
+        "*.ipp": "cpp"
+    },
+    "files.autoSave": "afterDelay",
+    "files.autoSaveDelay": 1000
 }

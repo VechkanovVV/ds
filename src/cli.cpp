@@ -5,6 +5,8 @@
 #include <iostream>
 #include <vector>
 
+const int TTL = 10;
+
 CLI::CLI(NetworkManager *manager) : manager_(manager) {}
 
 void CLI::start(std::atomic<bool> &running) {
@@ -39,10 +41,6 @@ void CLI::start(std::atomic<bool> &running) {
         download(input.substr(8));
       } else if (tokens[0] == "send_message" && tokens.size() > 2) {
         send_message(input.substr(12));
-      } else if (tokens[0] == "broadcast" && tokens.size() > 1) {
-        broadcast(input.substr(9));
-      } else if (tokens[0] == "status") {
-        show_status();
       } else if (tokens[0] == "help") {
         std::cout << "Available commands:\n"
                   << "  add_peer <address>      Add a neighbor\n"
@@ -52,8 +50,6 @@ void CLI::start(std::atomic<bool> &running) {
                   << "  find_file <query>       Search files\n"
                   << "  download <addr> <hash>  Download file\n"
                   << "  send_message <addr> <msg>\n"
-                  << "  broadcast <msg>         Send to all neighbors\n"
-                  << "  status                  Show node status\n"
                   << "  exit                    Quit\n";
       } else {
         print_error("Unknown command");
@@ -100,65 +96,24 @@ void CLI::add_file(const std::string &input) {
   }
 
   std::string path = input.substr(0, space);
-  std::string desc = (input.size() > space + 1) ? input.substr(space + 1) : "";
+  std::string name = (input.size() > space + 1) ? input.substr(space + 1) : "";
 
-  manager_.get_peer().add_file(path, desc);
+  manager_->add_file(path, name);
   print_success("File added: " + path);
 }
 
-void CLI::find_file(const std::string &query) {
-  auto results = manager_.search_files(query);
-  if (results.empty()) {
-    std::cout << "No files found\n";
-    return;
-  }
-  std::cout << "Search results (" << results.size() << "):\n";
-  for (const auto &[hash, meta] : results) {
-    std::cout << "  " << hash << " | " << meta.description << " | "
-              << meta.peer_address << "\n";
-  }
+void CLI::find_file(const std::string &file_name) {
+  std::string request_id = generate_unique_string(10);
+  std::string message = "FIND_FILE|" + file_name + "|" + std::to_string(TTL) +
+                        "|" + request_id + "|" + manager_->get_peer_address();
+  manager_->broadcast(message);
+  manager_->set_prev_message(request_id);
+  std::cout << "QUERY: " << message << "\n";
 }
 
-void CLI::download(const std::string &input) {
-  std::vector<std::string> parts;
-  boost::split(parts, input, boost::is_any_of(" "));
-  if (parts.size() != 2) {
-    throw std::invalid_argument(
-        "Invalid format. Use: download <address> <hash>");
-  }
+void CLI::download(const std::string &input) {}
 
-  if (manager_.download_file(parts[0], parts[1])) {
-    print_success("Download started");
-  } else {
-    print_error("Download failed");
-  }
-}
-
-void CLI::send_message(const std::string &input) {
-  size_t space = input.find(' ');
-  if (space == std::string::npos) {
-    throw std::invalid_argument(
-        "Invalid format. Use: send_message <address> <message>");
-  }
-
-  std::string address = input.substr(0, space);
-  std::string message = input.substr(space + 1);
-
-  manager_.send_request(address, "MSG " + message);
-  print_success("Message sent to " + address);
-}
-
-void CLI::broadcast(const std::string &message) {
-  manager_.broadcast("BCAST " + message);
-  print_success("Broadcasted to all peers");
-}
-
-void CLI::show_status() const {
-  const auto &peer = manager_.get_peer();
-  std::cout << "Address:    " << peer.get_address() << "\n"
-            << "Neighbors:  " << peer.get_neighbors().size() << "\n"
-            << "Shared files: " << peer.get_files().size() << "\n";
-}
+void CLI::send_message(const std::string &input) {}
 
 void CLI::print_error(const std::string &message) const {
   std::cerr << "[ERROR] " << message << "\n";
@@ -166,4 +121,23 @@ void CLI::print_error(const std::string &message) const {
 
 void CLI::print_success(const std::string &message) const {
   std::cout << "[OK] " << message << "\n";
+}
+
+std::string CLI::generate_unique_string(size_t length) {
+  const std::string charset = "0123456789"
+                              "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+                              "abcdefghijklmnopqrstuvwxyz";
+
+  std::random_device rd;
+  std::mt19937 generator(rd());
+  std::uniform_int_distribution<size_t> distribution(0, charset.size() - 1);
+
+  std::string result;
+  result.reserve(length);
+
+  for (size_t i = 0; i < length; ++i) {
+    result += charset[distribution(generator)];
+  }
+
+  return result;
 }

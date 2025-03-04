@@ -16,6 +16,7 @@ add_executable(tor
     src/main.cpp
     src/peer.cpp
     src/network_manager.cpp
+    src/cli.cpp
 )
 
 # Подключение библиотек

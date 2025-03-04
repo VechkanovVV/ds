@@ -1,6 +1,7 @@
 #ifndef PEER_H
 #define PEER_H
 
+#include <boost/asio.hpp>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -16,8 +17,12 @@ public:
   void add_file(const std::string &file_name, const std::string &file_path);
   bool has_file(const std::string &file_name) const;
 
-  int get_port() const;
-  const std::string &get_address() const;
+  std::string get_file_path(const std::string &file_name) const;
+
+  uint16_t get_port() const;
+  std::pair<std::string, uint16_t>
+  parse_address(const std::string &neighbor_address) const;
+  std::string get_address() const;
 
 private:
   std::string address_;

@@ -3,6 +3,7 @@
 
 #include "network_manager.h"
 #include <functional>
+#include <random>
 #include <string>
 
 class CLI {
@@ -18,6 +19,8 @@ private:
   void find_file(const std::string &query);
   void download(const std::string &input);
   void send_message(const std::string &input);
+
+  std::string generate_unique_string(size_t length);
 
   NetworkManager *manager_;
 

@@ -20,16 +20,29 @@ public:
 
   void send_request(const std::string &to_address, const std::string &message);
 
-  void broadcast(const std::string &message, int ttl = 5);
+  void broadcast(const std::string &message);
 
   void set_connection_handler(MessageHandler handler);
   void set_file_handler(MessageHandler handler);
+
+  bool find_file(const std::string &file_name) const;
+
+  std::string get_path_file(const std::string &file_name) const;
 
   Peer *get_peer();
 
   bool add_peer(const std::string &address);
 
   bool remove_peer(const std::string &address);
+  void add_file(const std::string &file_name, const std::string &file_path);
+
+  void set_prev_message(const std::string &new_message);
+
+  std::string get_peer_address() const;
+
+  std::string get_prev_message();
+
+  void send_to_peer(const std::string &address, const std::string &message);
 
 private:
   void handle_incoming_message(net::ip::tcp::socket &socket);
@@ -40,6 +53,8 @@ private:
 
   MessageHandler connection_handler_;
   MessageHandler file_handler_;
+
+  std::string prev_message_;
 };
 
 #endif // NETWORK_MANAGER_H

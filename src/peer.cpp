@@ -22,6 +22,24 @@ const std::unordered_set<std::string> &Peer::get_neighbors() const {
   return neighbors_;
 }
 
-int Peer::get_port() const {
-  return std::stoi(address_.substr(address_.find(':') + 1));
+uint16_t Peer::get_port() const {
+  size_t colon_pos = address_.find(':');
+  if (colon_pos == std::string::npos) {
+    throw std::runtime_error("Invalid address format");
+  }
+  return static_cast<uint16_t>(std::stoi(address_.substr(colon_pos + 1)));
 }
+
+std::pair<std::string, uint16_t>
+Peer::parse_address(const std::string &neighbor_address) const {
+  size_t colon_pos = neighbor_address.find(':');
+  std::string ip = neighbor_address.substr(0, colon_pos);
+  uint16_t port = std::stoi(neighbor_address.substr(colon_pos + 1));
+  return {ip, port};
+}
+
+std::string Peer::get_file_path(const std::string &file_name) const {
+  return files_.at(file_name);
+}
+
+std::string Peer::get_address() const { return address_; }
