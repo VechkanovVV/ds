@@ -40,7 +40,7 @@ void CLI::start(std::atomic<bool> &running) {
       } else if (tokens[0] == "download" && tokens.size() > 2) {
         download(input.substr(8));
       } else if (tokens[0] == "send_message" && tokens.size() > 2) {
-        send_message(input.substr(12));
+        send_message(input.substr(13));
       } else if (tokens[0] == "help") {
         std::cout << "Available commands:\n"
                   << "  add_peer <address>      Add a neighbor\n"
@@ -113,7 +113,14 @@ void CLI::find_file(const std::string &file_name) {
 
 void CLI::download(const std::string &input) {}
 
-void CLI::send_message(const std::string &input) {}
+void CLI::send_message(const std::string &input) {
+  size_t space = input.find(' ');
+  std::string address = input.substr(0, space);
+  std::string part = (input.size() > space + 1) ? input.substr(space + 1) : "";
+  std::string message = "Message|" + part + "|" + manager_->get_peer_address();
+  manager_->send_message(address, message);
+  print_success(message);
+}
 
 void CLI::print_error(const std::string &message) const {
   std::cerr << "[ERROR] " << message << "\n";

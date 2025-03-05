@@ -21,7 +21,7 @@ void NetworkManager::start_server(std::atomic<bool> &running) {
   while (running) {
     net::ip::tcp::socket socket(io_context_);
     acceptor_.accept(socket);
-    std::cout << "[SERVER] Accepted connection from "
+    std::cout << "[SERVER] Accepted connection\n"
               << socket.remote_endpoint().address().to_string() << std::endl;
 
     std::thread([this, s = std::move(socket)]() mutable {
@@ -65,10 +65,9 @@ void NetworkManager::start_server(std::atomic<bool> &running) {
           std::string request_id = message.substr(pos3 + 1, pos4 - pos3 - 1);
           std::string sender_ip = message.substr(pos4 + 1);
 
-          std::cout << "[ACTION] TTL: " << ttl << " from " << sender_ip
-                    << std::endl;
-
           if (ttl > 0 && request_id != get_prev_message()) {
+            std::cout << "[ACTION] TTL: " << ttl << " from " << sender_ip
+                      << std::endl;
             set_prev_message(request_id);
             ttl--;
 
@@ -78,13 +77,17 @@ void NetworkManager::start_server(std::atomic<bool> &running) {
               std::string response = "FOUND_FILE|" + file_name + "|" +
                                      request_id + "|" + sender_ip;
               send_to_peer(sender_ip, response);
-            } else if (ttl > 0) {
+            } else {
               std::string new_message = "FIND_FILE|" + file_name + "|" +
                                         std::to_string(ttl) + "|" + request_id +
                                         "|" + sender_ip;
               broadcast(new_message);
             }
           }
+        }
+
+        else if (message.find("Message") == 0) {
+          std::cout << "kek\n";
         }
       } catch (const boost::system::system_error &e) {
         if (e.code() == boost::asio::error::eof) {
@@ -153,6 +156,11 @@ std::string NetworkManager::get_path_file(const std::string &file_name) const {
 
 std::string NetworkManager::get_peer_address() const {
   return peer_->get_address();
+}
+
+void NetworkManager::send_message(const std::string &address,
+                                  const std::string message) {
+  send_to_peer(address, message);
 }
 
 void NetworkManager::send_to_peer(const std::string &address,

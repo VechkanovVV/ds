@@ -18,6 +18,8 @@ public:
   void start_server(std::atomic<bool> &running);
   void stop_server();
 
+  void send_message(const std::string &address, const std::string message);
+
   void send_request(const std::string &to_address, const std::string &message);
 
   void broadcast(const std::string &message);
