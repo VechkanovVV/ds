@@ -1,0 +1,7 @@
+.idea
+build/
+CMakeUserPresets.json
+src/proto/raftnode.grpc.pb.cc
+src/proto/raftnode.grpc.pb.h
+src/proto/raftnode.pb.cc
+src/proto/raftnode.pb.h

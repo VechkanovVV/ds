@@ -1,0 +1,52 @@
+syntax = "proto3";
+
+service RaftNodeService {
+  rpc AppendEntries(AppendEntriesArgs) returns (AppendEntriesResponse);
+  rpc RequestVote(RequestVoteArgs) returns (RequestVoteResponse);
+  rpc GetLeader(GetLeaderArgs) returns (GetLeaderResponse);
+  rpc AddValue(AddValueArgs) returns (AddValueResponse);
+  rpc GetValue(GetValueArgs) returns (GetValueResponse);
+  rpc Suspend(SuspendArgs) returns (SuspendResponse);
+  rpc Resume(ResumeArgs) returns (ResumeResponse);
+}
+
+message AppendEntriesArgs {
+  int32 leader_id = 1;
+  int32 leader_term = 2;
+  int32 committed_value = 3;
+  int32 uncommitted_value = 4;
+}
+message AppendEntriesResponse {
+  int32 term = 1;
+  bool heartbeat_result = 2;
+}
+
+message RequestVoteArgs {
+  int32 candidate_id = 1;
+  int32 candidate_term = 2;
+}
+message RequestVoteResponse {
+  int32 term = 1;
+  bool vote_result = 2;
+}
+
+message GetLeaderArgs {}
+message GetLeaderResponse {
+  int32 leader_id = 1;
+}
+
+message AddValueArgs {
+  int32 value_to_add = 1;
+}
+message AddValueResponse {}
+
+message GetValueArgs {}
+message GetValueResponse {
+  int32 value = 1;
+}
+
+message SuspendArgs {}
+message SuspendResponse {}
+
+message ResumeArgs {}
+message ResumeResponse {}
