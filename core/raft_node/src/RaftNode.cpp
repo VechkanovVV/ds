@@ -1,6 +1,7 @@
 #include "RaftNode.h"
 #include <thread>
 #include <grpcpp/grpcpp.h>
+#include <algorithm>
 
 RaftNode::RaftNode(const int id, const std::vector<Node>& peers)
     : id_(id),
@@ -18,6 +19,15 @@ RaftNode::~RaftNode() {
 std::unique_ptr<RaftNodeService::Stub> RaftNode::GetStub(const std::string& address) {
     const auto channel = grpc::CreateChannel(address, grpc::InsecureChannelCredentials());
     return RaftNodeService::NewStub(channel);
+}
+
+void RaftNode::ApplyCommittedEntries() {
+    // Применяем все коммиты, которые еще не были применены
+    while (last_applied_ < commit_index_) {
+        last_applied_++;
+        // TODO: Применить команду log_[last_applied_].data() к состоянию (DHT)
+        // Например: dht_.apply(log_[last_applied_].data());
+    }
 }
 
 void RaftNode::FindLeader() {
@@ -57,39 +67,96 @@ void RaftNode::SendHeartbeat() {
     int current_term;
     int node_id;
     std::vector<Node> peers_copy;
+    std::vector<int> next_index_copy;
+    std::vector<int> match_index_copy;
+    
     {
         std::lock_guard<std::mutex> lock(state_mutex_);
         if (state_ != RaftNodeState::LEADER) return;
+        
         peers_copy = peers_;
+        next_index_copy = next_index_;
+        match_index_copy = match_index_;
         current_term = current_term_;
         node_id = id_;
     }
 
     std::vector<std::thread> threads;
-    for (const auto& neighbor : peers_copy) {
-        if (neighbor.id == id_) continue;
-
-        threads.emplace_back([this, neighbor, node_id, current_term] {
-            const auto stub = GetStub(neighbor.address);
+    for (size_t i = 0; i < peers_copy.size(); ++i) {
+        if (peers_copy[i].id == id_) continue;
+        
+        threads.emplace_back([this, i, peers_copy, next_index_copy, match_index_copy, node_id, current_term] {
+            const auto stub = GetStub(peers_copy[i].address);
             AppendEntriesRequest request;
             request.set_term(current_term);
             request.set_leader_id(node_id);
+            request.set_leader_commit(commit_index_);
+            
+            // Формируем запрос на основе next_index_copy[i]
+            int prev_log_index = next_index_copy[i] - 1;
+            int prev_log_term = -1;
+            {
+                std::lock_guard<std::mutex> lock(state_mutex_);
+                if (prev_log_index >= 0) {
+                    if (prev_log_index < log_.size()) {
+                        prev_log_term = log_[prev_log_index].term();
+                    } else {
+                        // Несоответствие: отправим снапшот (пока просто выходим)
+                        return;
+                    }
+                }
+            }
+            request.set_prev_log_index(prev_log_index);
+            request.set_prev_log_term(prev_log_term);
+            
+            // Добавляем записи, начиная с next_index_copy[i]
+            {
+                std::lock_guard<std::mutex> lock(state_mutex_);
+                for (int j = next_index_copy[i]; j < log_.size(); ++j) {
+                    auto* entry = request.add_entries();
+                    entry->set_term(log_[j].term());
+                    entry->set_data(log_[j].data());
+                }
+            }
+
             AppendEntriesResponse response;
             grpc::ClientContext context;
 
             if (stub->AppendEntries(&context, request, &response).ok()) {
-                if (response.term() > current_term) {
-                    std::lock_guard<std::mutex> lock(state_mutex_);
-                    if (response.term() > current_term_) {
-                        current_term_ = response.term();
-                        state_ = RaftNodeState::FOLLOWER;
-                        voted_for_ = -1;
-                        leader_id_ = -1;
-                        timer_delegate_.changeStrategy(
-                            std::make_unique<ElectionTimerStrategy>(this, election_dist_)
-                        );
-                        timer_delegate_.reset();
+                std::lock_guard<std::mutex> lock(state_mutex_);
+                if (response.term() > current_term_) {
+                    current_term_ = response.term();
+                    state_ = RaftNodeState::FOLLOWER;
+                    voted_for_ = -1;
+                    leader_id_ = -1;
+                    timer_delegate_.changeStrategy(
+                        std::make_unique<ElectionTimerStrategy>(this, election_dist_)
+                    );
+                    timer_delegate_.reset();
+                    return;
+                }
+                
+                if (response.success()) {
+                    // Успешно реплицировали записи
+                    next_index_[i] = next_index_copy[i] + request.entries_size();
+                    match_index_[i] = next_index_[i] - 1;
+                    
+                    // Проверяем, можно ли обновить commit_index
+                    std::vector<int> match_indices;
+                    for (int index : match_index_) {
+                        match_indices.push_back(index);
                     }
+                    match_indices.push_back(log_.size() - 1); // Лидер учитывает свой лог
+                    std::sort(match_indices.begin(), match_indices.end());
+                    int new_commit_index = match_indices[match_indices.size() / 2];
+                    
+                    if (new_commit_index > commit_index_ && log_[new_commit_index].term() == current_term_) {
+                        commit_index_ = new_commit_index;
+                        ApplyCommittedEntries(); // Применяем коммиты
+                    }
+                } else {
+                    // Конфликт: уменьшаем next_index
+                    next_index_[i] = std::max(0, next_index_copy[i] - 1);
                 }
             }
         });
@@ -106,7 +173,7 @@ void RaftNode::StartElection() {
     {
         std::lock_guard<std::mutex> lock(state_mutex_);
         if (state_ != RaftNodeState::FOLLOWER) return;
-
+        
         state_ = RaftNodeState::CANDIDATE;
         current_term_++;
         current_term = current_term_;
@@ -115,8 +182,7 @@ void RaftNode::StartElection() {
         votes_.insert(id_);
         voted_for_ = id_;
         peers_copy = peers_;
-
-        // Смена стратегии таймера
+        
         timer_delegate_.changeStrategy(
             std::make_unique<NullTimerStrategy>()
         );
@@ -133,8 +199,10 @@ void RaftNode::StartElection() {
             RequestVoteRequest request;
             request.set_term(current_term);
             request.set_candidate_id(node_id);
-            request.set_last_log_index(0); // TODO: реальные значения
-            request.set_last_log_term(0);
+            request.set_last_log_index(static_cast<int>(log_.size()) - 1);
+            request.set_last_log_term(
+                (log_.empty() ? 0 : log_.back().term())
+            );
 
             RequestVoteResponse response;
             grpc::ClientContext context;
@@ -148,11 +216,13 @@ void RaftNode::StartElection() {
                         leader_id_ = id_;
                         // TODO: логгировать избрание
 
-                        // Смена на heartbeat стратегию
+                        // Инициализация состояния лидера
+                        next_index_.resize(peers_.size(), log_.size());
+                        match_index_.resize(peers_.size(), -1);
+                        
                         timer_delegate_.changeStrategy(
                             std::make_unique<HeartbeatTimerStrategy>(this)
                         );
-                        // Немедленная отправка heartbeat
                         SendHeartbeat();
                     }
                 }
@@ -192,8 +262,19 @@ grpc::Status RaftNode::RequestVote(grpc::ServerContext*, const RequestVoteReques
             voted_for_ = -1;
             leader_id_ = -1;
         }
-        if ((voted_for_ == -1 || voted_for_ == request->candidate_id())) {
-            // TODO: проверка лога
+        
+        // Проверка лога
+        bool log_ok = true;
+        if (!log_.empty()) {
+            int last_index = log_.size() - 1;
+            int last_term = log_.back().term();
+            
+            log_ok = (request->last_log_term() > last_term) ||
+                     (request->last_log_term() == last_term && 
+                      request->last_log_index() >= last_index);
+        }
+
+        if ((voted_for_ == -1 || voted_for_ == request->candidate_id()) && log_ok) {
             voted_for_ = request->candidate_id();
             vote_granted = true;
             timer_delegate_.reset();
@@ -213,17 +294,51 @@ grpc::Status RaftNode::AppendEntries(grpc::ServerContext*, const AppendEntriesRe
         return grpc::Status::OK;
     }
 
-    // Обновление термина
+    // Обновление термина и сброс состояния
     if (request->term() > current_term_) {
         current_term_ = request->term();
         state_ = RaftNodeState::FOLLOWER;
         voted_for_ = -1;
+        leader_id_ = request->leader_id();
+    } else {
+        leader_id_ = request->leader_id();
     }
 
-    leader_id_ = request->leader_id();
-    timer_delegate_.reset();
+    timer_delegate_.reset(); // Сброс таймера выборов
 
-    // TODO: обработка лога
+    // 1. Проверка prev_log_index и prev_log_term
+    bool log_ok = true;
+    if (request->prev_log_index() >= 0) {
+        if (request->prev_log_index() >= log_.size()) {
+            log_ok = false;
+        } else if (log_[request->prev_log_index()].term() != request->prev_log_term()) {
+            log_ok = false;
+        }
+    }
+    
+    if (!log_ok) {
+        response->set_success(false);
+        return grpc::Status::OK;
+    }
+
+    // 2. Вставка новых записей (с удалением конфликтов)
+    int insert_index = request->prev_log_index() + 1;
+    if (insert_index < log_.size()) {
+        // Удаляем конфликтующие записи
+        log_.erase(log_.begin() + insert_index, log_.end());
+    }
+    
+    // Добавляем новые записи
+    for (const auto& entry : request->entries()) {
+        log_.push_back(entry);
+    }
+
+    // 3. Обновляем commit_index
+    if (request->leader_commit() > commit_index_) {
+        commit_index_ = std::min(request->leader_commit(), static_cast<int>(log_.size() - 1));
+        ApplyCommittedEntries();
+    }
+
     response->set_success(true);
     return grpc::Status::OK;
 }
@@ -270,7 +385,7 @@ grpc::Status RaftNode::InstallSnapshot(grpc::ServerContext*, const InstallSnapsh
 }
 
 // Реализации стратегий таймеров
-ElectionTimerStrategy::ElectionTimerStrategy(RaftNode* node, const std::uniform_int_distribution<int> dist)
+ElectionTimerStrategy::ElectionTimerStrategy(RaftNode* node, std::uniform_int_distribution<int> dist)
     : node_(node), dist_(dist), rng_(std::random_device{}()) {}
 
 int ElectionTimerStrategy::nextTimeout() {

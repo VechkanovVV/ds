@@ -46,6 +46,7 @@ private:
     void StartElection();
     void SendHeartbeat();
     void FindLeader();
+    void ApplyCommittedEntries();
 
     static std::unique_ptr<RaftNodeService::Stub> GetStub(const std::string& address);
 
@@ -60,10 +61,18 @@ private:
     std::set<int> votes_;
     std::atomic<RaftNodeState> state_ = RaftNodeState::FOLLOWER;
 
+    // Лог и индексы
+    std::vector<LogEntry> log_;           // лог записей
+    int commit_index_ = -1;               // индекс последней коммитнутой записи
+    int last_applied_ = -1;               // индекс последней примененной записи
+
+    // Только для лидера
+    std::vector<int> next_index_;         // для каждого последователя: следующий индекс для отправки
+    std::vector<int> match_index_;        // для каждого последователя: последний подтвержденный индекс
+
     mutable std::mt19937 rng_;
     std::uniform_int_distribution<int> election_dist_;
 
-    // TODO: добавить хранилище лога команд
     // TODO: интегрировать библиотеку логирования
 };
 
