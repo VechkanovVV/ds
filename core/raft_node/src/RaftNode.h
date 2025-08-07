@@ -74,6 +74,12 @@ private:
     std::uniform_int_distribution<int> election_dist_;
 
     // TODO: интегрировать библиотеку логирования
+
+
+public:
+    void Shutdown() {
+        timer_delegate_.stop();
+    }
 };
 
 class ElectionTimerStrategy final : public ITimerStrategy {
