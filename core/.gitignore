@@ -3,3 +3,5 @@ build/
 CMakeUserPresets.json
 .venv
 .vscode
+1.sh
+result.txt
