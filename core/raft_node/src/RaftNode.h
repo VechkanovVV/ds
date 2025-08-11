@@ -12,6 +12,7 @@
 #include <memory>
 #include <thread>
 #include <grpcpp/grpcpp.h>
+#include <functional>
 
 class ElectionTimerStrategy;
 class HeartbeatTimerStrategy;
@@ -19,8 +20,8 @@ class HeartbeatTimerStrategy;
 enum class RaftNodeState { FOLLOWER, CANDIDATE, LEADER };
 
 namespace Numbers {
-    constexpr int ElectionTimeoutMin = 150;
-    constexpr int HeartbeatTimeoutMin = 50;
+constexpr int ElectionTimeoutMin = 150;
+constexpr int HeartbeatTimeoutMin = 50;
 };
 
 struct Node {
@@ -30,7 +31,7 @@ struct Node {
 
 class RaftNode final : public RaftNodeService::Service {
 public:
-    RaftNode(int id, const std::vector<Node>& peers);
+    RaftNode(int id, const std::vector<Node>& peers, std::function<void(const std::string&)> apply_callback);
     ~RaftNode() override;
 
     // RPC методы Raft
@@ -38,6 +39,10 @@ public:
     grpc::Status RequestVote(grpc::ServerContext* context, const RequestVoteRequest* request, RequestVoteResponse* response) override;
     grpc::Status GetLeader(grpc::ServerContext* context, const GetLeaderRequest* request, GetLeaderResponse* response) override;
     grpc::Status InstallSnapshot(grpc::ServerContext* context, const InstallSnapshotRequest* request, InstallSnapshotResponse* response) override;
+
+    bool Submit(const std::string& command);
+    std::string GetLeaderAddress() const;
+    void Shutdown();
 
 private:
     friend class ElectionTimerStrategy;
@@ -62,24 +67,18 @@ private:
     std::atomic<RaftNodeState> state_ = RaftNodeState::FOLLOWER;
 
     // Лог и индексы
-    std::vector<LogEntry> log_;           // лог записей
-    int commit_index_ = -1;               // индекс последней коммитнутой записи
-    int last_applied_ = -1;               // индекс последней примененной записи
+    std::vector<LogEntry> log_; // лог записей
+    int commit_index_ = -1; // индекс последней коммитнутой записи
+    int last_applied_ = -1; // индекс последней примененной записи
 
     // Только для лидера
-    std::vector<int> next_index_;         // для каждого последователя: следующий индекс для отправки
-    std::vector<int> match_index_;        // для каждого последователя: последний подтвержденный индекс
+    std::vector<int> next_index_; // для каждого последователя: следующий индекс для отправки
+    std::vector<int> match_index_; // для каждого последователя: последний подтвержденный индекс
 
     mutable std::mt19937 rng_;
     std::uniform_int_distribution<int> election_dist_;
 
-    // TODO: интегрировать библиотеку логирования
-
-
-public:
-    void Shutdown() {
-        timer_delegate_.stop();
-    }
+    std::function<void(const std::string&)> apply_callback_;
 };
 
 class ElectionTimerStrategy final : public ITimerStrategy {

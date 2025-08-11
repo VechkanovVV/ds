@@ -1,0 +1,7 @@
+.idea
+build/
+CMakeUserPresets.json
+src/proto/dht.grpc.pb.cc
+src/proto/dht.grpc.pb.h
+src/proto/dht.pb.cc
+src/proto/dht.pb.h

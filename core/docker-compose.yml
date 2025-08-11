@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  node1:
+    build: .
+    command: ["./build/core", "1", "0.0.0.0:50051", "2", "node2:50052", "3", "node3:50053"]
+    ports:
+      - "50051:50051"
+    networks:
+      - raftnet
+
+  node2:
+    build: .
+    command: ["./build/core", "2", "0.0.0.0:50052", "1", "node1:50051", "3", "node3:50053"]
+    ports:
+      - "50052:50052"
+    networks:
+      - raftnet
+    depends_on:
+      - node1
+
+  node3:
+    build: .
+    command: ["./build/core", "3", "0.0.0.0:50053", "1", "node1:50051", "2", "node2:50052"]
+    ports:
+      - "50053:50053"
+    networks:
+      - raftnet
+    depends_on:
+      - node1
+
+networks:
+  raftnet:
+    driver: bridge
